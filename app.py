@@ -1,122 +1,87 @@
-import streamlit as st
-import re
-import dns.resolver
-import socket
+# Email Permutator + Verifier using Streamlit
+# Requirements: streamlit, validate_email_address (or py3dns, dnspython), smtplib, pandas
 
-# --- Nickname Mapping ---
-nickname_dict = {
-    "johnathan": ["john", "jon", "johnny", "johan"],
-    "michael": ["mike", "micky"],
-    "william": ["will", "bill", "willy"],
-    "james": ["jim", "jimmy"],
-    "robert": ["rob", "bob", "bobby"],
-    "richard": ["rich", "rick", "ricky", "dick"],
-    "joseph": ["joe", "joey"],
-    "charles": ["charlie", "chuck"],
-    "daniel": ["dan", "danny"],
-    "steven": ["steve"],
+import streamlit as st
+import pandas as pd
+import re
+import smtplib
+import dns.resolver
+from validate_email_address import validate_email
+
+st.set_page_config(page_title="Email Permutator + Verifier", layout="wide")
+st.title("📧 Email Permutator + Verifier")
+
+# --- Sidebar ---
+st.sidebar.header("Input")
+first_name = st.sidebar.text_input("First Name", "John")
+middle_name = st.sidebar.text_input("Middle Name (optional)", "")
+last_name = st.sidebar.text_input("Last Name", "Doe")
+nickname = st.sidebar.text_input("Nickname (optional)", "")
+domain = st.sidebar.text_input("Company Domain", "example.com")
+
+# Helper: Nickname mapping
+NICKNAME_MAP = {
+    "johnathan": "john",
+    "michael": "mike",
+    "robert": "rob",
+    "william": "will",
+    "richard": "rich",
+    "joseph": "joe",
+    "thomas": "tom",
+    "james": "jim",
+    "daniel": "dan",
+    "steven": "steve",
+    "andrew": "andy",
 }
 
-
-# --- Email Permutation Logic ---
+# --- Permutation Logic ---
 def generate_permutations(first, middle, last, domain, nickname=None):
-    permutations = set()
-    separators = ["", ".", "-", "_"]
-
-    first = first.lower().strip()
-    middle = middle.lower().strip() if middle else ""
-    last = last.lower().strip() if last else ""
-    domain = domain.lower().strip()
-
-    all_firsts = [first, first[0]]
+    all_firsts = [first.lower()]
+    if first.lower() in NICKNAME_MAP:
+        all_firsts.append(NICKNAME_MAP[first.lower()])
     if nickname:
-        all_firsts.append(nickname.lower().strip())
-    if first in nickname_dict:
-        all_firsts.extend(nickname_dict[first])
+        all_firsts.append(nickname.lower())
 
-    middles = [middle, middle[0]] if middle else [""]
-    lasts = [last, last[0]] if last else [""]
+    middle = middle.lower() if middle else ""
+    last = last.lower()
 
+    patterns = set()
     for f in all_firsts:
-        for m in middles:
-            for l in lasts:
-                for sep1 in separators:
-                    for sep2 in separators:
-                        username_parts = list(filter(None, [f, m, l]))
-                        if len(username_parts) == 1:
-                            username = username_parts[0]
-                        elif len(username_parts) == 2:
-                            username = f"{username_parts[0]}{sep1}{username_parts[1]}"
-                        else:
-                            username = f"{username_parts[0]}{sep1}{username_parts[1]}{sep2}{username_parts[2]}"
-                        permutations.add(f"{username}@{domain}")
-    return sorted(permutations)
+        for m in [middle, middle[:1], ""]:
+            for l in [last, last[:1], ""]:
+                combos = [
+                    f"{f}{l}", f"{f}.{l}", f"{f}_{l}", f"{f}{m}{l}", f"{f}.{m}.{l}",
+                    f"{l}{f}", f"{l}.{f}", f"{f}{m}", f"{f}{l}{m}", f"{f}{m}{l}"
+                ]
+                for email in combos:
+                    email = re.sub("\.+", ".", email).strip(".")
+                    if email:
+                        patterns.add(f"{email}@{domain}")
 
+    return sorted(patterns)
 
-# --- Email Validator ---
-def is_valid_email_format(email):
-    pattern = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
-    return re.match(pattern, email)
-
-def validate_mx_record(domain):
+# --- Email Verification Logic ---
+def verify_email_smtp(email):
     try:
-        dns.resolver.resolve(domain, 'MX')
-        return True
-    except Exception:
-        return False
+        is_valid = validate_email(email, verify=True)
+        return "✅ Valid" if is_valid else "❌ Invalid"
+    except:
+        return "⚠️ Unknown"
 
-def validate_email(email):
-    if not is_valid_email_format(email):
-        return "❌ Invalid format"
-    domain = email.split('@')[-1]
-    if not validate_mx_record(domain):
-        return "⚠️ No MX record"
-    return "✅ Looks valid"
+# --- Run ---
+if st.sidebar.button("Generate Emails"):
+    st.subheader("Generated Email Permutations with Verification")
+    emails = generate_permutations(first_name, middle_name, last_name, domain, nickname)
 
+    results = []
+    with st.spinner("Verifying emails..."):
+        for email in emails:
+            status = verify_email_smtp(email)
+            results.append({"Email": email, "Status": status})
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Email Tool", layout="centered")
+    df = pd.DataFrame(results)
+    st.dataframe(df, use_container_width=True)
 
-st.title("📧 Email Tools")
-mode = st.radio("Choose what you want to do:", ["Email Permutator", "Email Validator"], horizontal=True)
-st.markdown("---")
-
-# --- Email Permutator UI ---
-if mode == "Email Permutator":
-    st.subheader("🔄 Generate Email Permutations")
-
-    with st.form("perm_form"):
-        first_name = st.text_input("First Name*", placeholder="e.g., John", max_chars=30)
-        middle_name = st.text_input("Middle Name", placeholder="Optional", max_chars=30)
-        last_name = st.text_input("Last Name", placeholder="e.g., Smith", max_chars=30)
-        nickname = st.text_input("Nickname", placeholder="e.g., Mike (optional)", max_chars=30)
-        domain = st.text_input("Company Domain*", placeholder="e.g., example.com", max_chars=60)
-
-        submitted = st.form_submit_button("🔍 Generate")
-
-    if submitted:
-        if not first_name or not domain:
-            st.warning("First Name and Domain are required.")
-        else:
-            emails = generate_permutations(first_name, middle_name, last_name, domain, nickname)
-            st.success(f"Generated {len(emails)} permutations.")
-            st.download_button("📥 Download as .txt", data="\n".join(emails), file_name="emails.txt")
-            st.code("\n".join(emails[:50]), language="text")
-
-# --- Email Validator UI ---
-elif mode == "Email Validator":
-    st.subheader("✅ Check Email Validity")
-
-    with st.form("val_form"):
-        emails_text = st.text_area("Enter email(s), one per line:", height=200)
-        val_submitted = st.form_submit_button("🚦 Validate Emails")
-
-    if val_submitted:
-        if not emails_text.strip():
-            st.warning("Please enter at least one email.")
-        else:
-            emails = emails_text.strip().splitlines()
-            st.markdown("### Results")
-            for email in emails:
-                status = validate_email(email.strip())
-                st.write(f"- `{email.strip()}` → {status}")
+    # Export
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("⬇️ Download Results as CSV", csv, "verified_emails.csv", "text/csv")
