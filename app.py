@@ -1,79 +1,24 @@
-# Regenerating the full project code with:
-# - Email Permutator
-# - Optional nickname
-# - Inline email verification
-# - CSV upload and download support
-
-import itertools
+import streamlit as st
 import pandas as pd
-import re
-import smtplib
-import dns.resolver
-from email_validator import validate_email, EmailNotValidError
+from concurrent.futures import ThreadPoolExecutor
+from services.email_check import validate_email
 
-# Define nickname mapping
-NICKNAME_MAP = {
-    "johnathan": "john",
-    "jonathan": "jon",
-    "michael": "mike",
-    "johannes": "johan",
-    "william": "bill",
-    "richard": "rich",
-    "robert": "rob",
-    "steven": "steve",
-    "thomas": "tom",
-    "joseph": "joe",
-    "nicholas": "nick",
-    "patrick": "pat"
-}
+st.set_page_config(page_title="Email Validator", page_icon="✅")
+st.title("📧 Email Validator Tool")
+st.write("Enter a list of email addresses separated by commas or newlines:")
 
-# Generate permutations
-def generate_permutations(first_name, middle_name, last_name, domain, nickname=""):
-    firsts = {first_name.lower()}
-    if first_name.lower() in NICKNAME_MAP:
-        firsts.add(NICKNAME_MAP[first_name.lower()])
-    if nickname:
-        firsts.add(nickname.lower())
+user_input = st.text_area("Emails", height=200)
 
-    middles = [middle_name.lower(), middle_name[:1].lower()] if middle_name else [""]
-    lasts = [last_name.lower(), last_name[:1].lower()] if last_name else [""]
-
-    formats = set()
-    for f, m, l in itertools.product(firsts, middles, lasts):
-        parts = list(filter(None, [f, m, l]))
-        if not parts:
-            continue
-        formats.update({
-            ".".join(parts),
-            "_".join(parts),
-            "".join(parts),
-            f"{f}{l}",
-            f"{f}.{l}",
-            f"{f}_{l}",
-            f"{f}{m}{l}"
-        })
-
-    return sorted({f"{fmt}@{domain}" for fmt in formats})
-
-# Validate email format + MX + SMTP
-def verify_email(email):
-    try:
-        # Syntax + domain check
-        validate_email(email, check_deliverability=True)
-        
-        domain = email.split('@')[1]
-        records = dns.resolver.resolve(domain, 'MX')
-        mx_record = str(records[0].exchange)
-
-        # SMTP check
-        server = smtplib.SMTP(timeout=5)
-        server.connect(mx_record)
-        server.helo()
-        server.mail('test@example.com')
-        code, _ = server.rcpt(email)
-        server.quit()
-
-        return code == 250
-    except Exception:
-        return False
-
+if st.button("Validate"):
+    emails = [e.strip() for e in user_input.replace(',', '\n').split('\n') if e.strip()]
+    if not emails:
+        st.warning("Please enter at least one email address.")
+    else:
+        with st.spinner("Validating emails..."):
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                results = list(executor.map(validate_email, emails))
+            df = pd.DataFrame(results)
+            st.success("Validation complete!")
+            st.dataframe(df)
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download CSV", data=csv, file_name="results.csv", mime="text/csv")
