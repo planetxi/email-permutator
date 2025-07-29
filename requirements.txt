@@ -1,4 +1,2 @@
 streamlit
 dnspython
-validators
-email-validator
