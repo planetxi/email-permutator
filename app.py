@@ -55,7 +55,7 @@ def generate_permutations(first, middle, last, domain, nickname=None):
 # --- Streamlit UI ---
 st.set_page_config(page_title="Email Permutator", layout="centered")
 st.title("📧 Email Permutator Tool")
-st.caption("Generate email combinations using name + domain — built with ❤️ by Brijesh")
+st.caption("Generate email combinations using name + domain — built with ❤️ by Rahul")
 
 with st.form("email_form"):
     first_name = st.text_input("First Name*", placeholder="e.g., John", max_chars=30)
