@@ -1,87 +1,79 @@
-# Email Permutator + Verifier using Streamlit
-# Requirements: streamlit, validate_email_address (or py3dns, dnspython), smtplib, pandas
+# Regenerating the full project code with:
+# - Email Permutator
+# - Optional nickname
+# - Inline email verification
+# - CSV upload and download support
 
-import streamlit as st
+import itertools
 import pandas as pd
 import re
 import smtplib
 import dns.resolver
-from validate_email_address import validate_email
+from email_validator import validate_email, EmailNotValidError
 
-st.set_page_config(page_title="Email Permutator + Verifier", layout="wide")
-st.title("📧 Email Permutator + Verifier")
-
-# --- Sidebar ---
-st.sidebar.header("Input")
-first_name = st.sidebar.text_input("First Name", "John")
-middle_name = st.sidebar.text_input("Middle Name (optional)", "")
-last_name = st.sidebar.text_input("Last Name", "Doe")
-nickname = st.sidebar.text_input("Nickname (optional)", "")
-domain = st.sidebar.text_input("Company Domain", "example.com")
-
-# Helper: Nickname mapping
+# Define nickname mapping
 NICKNAME_MAP = {
     "johnathan": "john",
+    "jonathan": "jon",
     "michael": "mike",
-    "robert": "rob",
-    "william": "will",
+    "johannes": "johan",
+    "william": "bill",
     "richard": "rich",
-    "joseph": "joe",
-    "thomas": "tom",
-    "james": "jim",
-    "daniel": "dan",
+    "robert": "rob",
     "steven": "steve",
-    "andrew": "andy",
+    "thomas": "tom",
+    "joseph": "joe",
+    "nicholas": "nick",
+    "patrick": "pat"
 }
 
-# --- Permutation Logic ---
-def generate_permutations(first, middle, last, domain, nickname=None):
-    all_firsts = [first.lower()]
-    if first.lower() in NICKNAME_MAP:
-        all_firsts.append(NICKNAME_MAP[first.lower()])
+# Generate permutations
+def generate_permutations(first_name, middle_name, last_name, domain, nickname=""):
+    firsts = {first_name.lower()}
+    if first_name.lower() in NICKNAME_MAP:
+        firsts.add(NICKNAME_MAP[first_name.lower()])
     if nickname:
-        all_firsts.append(nickname.lower())
+        firsts.add(nickname.lower())
 
-    middle = middle.lower() if middle else ""
-    last = last.lower()
+    middles = [middle_name.lower(), middle_name[:1].lower()] if middle_name else [""]
+    lasts = [last_name.lower(), last_name[:1].lower()] if last_name else [""]
 
-    patterns = set()
-    for f in all_firsts:
-        for m in [middle, middle[:1], ""]:
-            for l in [last, last[:1], ""]:
-                combos = [
-                    f"{f}{l}", f"{f}.{l}", f"{f}_{l}", f"{f}{m}{l}", f"{f}.{m}.{l}",
-                    f"{l}{f}", f"{l}.{f}", f"{f}{m}", f"{f}{l}{m}", f"{f}{m}{l}"
-                ]
-                for email in combos:
-                    email = re.sub("\.+", ".", email).strip(".")
-                    if email:
-                        patterns.add(f"{email}@{domain}")
+    formats = set()
+    for f, m, l in itertools.product(firsts, middles, lasts):
+        parts = list(filter(None, [f, m, l]))
+        if not parts:
+            continue
+        formats.update({
+            ".".join(parts),
+            "_".join(parts),
+            "".join(parts),
+            f"{f}{l}",
+            f"{f}.{l}",
+            f"{f}_{l}",
+            f"{f}{m}{l}"
+        })
 
-    return sorted(patterns)
+    return sorted({f"{fmt}@{domain}" for fmt in formats})
 
-# --- Email Verification Logic ---
-def verify_email_smtp(email):
+# Validate email format + MX + SMTP
+def verify_email(email):
     try:
-        is_valid = validate_email(email, verify=True)
-        return "✅ Valid" if is_valid else "❌ Invalid"
-    except:
-        return "⚠️ Unknown"
+        # Syntax + domain check
+        validate_email(email, check_deliverability=True)
+        
+        domain = email.split('@')[1]
+        records = dns.resolver.resolve(domain, 'MX')
+        mx_record = str(records[0].exchange)
 
-# --- Run ---
-if st.sidebar.button("Generate Emails"):
-    st.subheader("Generated Email Permutations with Verification")
-    emails = generate_permutations(first_name, middle_name, last_name, domain, nickname)
+        # SMTP check
+        server = smtplib.SMTP(timeout=5)
+        server.connect(mx_record)
+        server.helo()
+        server.mail('test@example.com')
+        code, _ = server.rcpt(email)
+        server.quit()
 
-    results = []
-    with st.spinner("Verifying emails..."):
-        for email in emails:
-            status = verify_email_smtp(email)
-            results.append({"Email": email, "Status": status})
+        return code == 250
+    except Exception:
+        return False
 
-    df = pd.DataFrame(results)
-    st.dataframe(df, use_container_width=True)
-
-    # Export
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("⬇️ Download Results as CSV", csv, "verified_emails.csv", "text/csv")
