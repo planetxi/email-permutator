@@ -1,37 +1,56 @@
+# app.py
 import streamlit as st
-from services.email_check import validate_email
-from features.email_permutator import show_email_permutator
-import pandas as pd
-from concurrent.futures import ThreadPoolExecutor
+from features.email_validator_ui import show_email_validator
+from features.email_permutator_ui import show_email_permutator
 
-# Sidebar Navigation
-st.set_page_config(page_title="Email Toolkit", page_icon="📧", layout="centered")
-st.sidebar.title("📚 Tool Selector")
-tool = st.sidebar.radio("Choose a Tool:", ["Email Validator", "Email Permutator"])
+st.set_page_config(page_title="Email Toolkit", page_icon="📧", layout="wide")
 
-# --- Email Validator UI ---
-def show_email_validator():
-    st.subheader("📧 Email Validator Tool")
-    st.write("Enter a list of email addresses separated by commas or newlines:")
+# --- Top Nav-like Section ---
+st.markdown("""
+    <style>
+    .nav-container {
+        display: flex;
+        justify-content: space-around;
+        background-color: #f0f2f6;
+        padding: 1rem 0;
+        border-bottom: 1px solid #d3d3d3;
+        margin-bottom: 2rem;
+    }
+    .nav-box {
+        text-align: center;
+        padding: 1rem;
+        width: 45%;
+        border-radius: 10px;
+        background-color: #ffffff;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        transition: 0.2s;
+    }
+    .nav-box:hover {
+        background-color: #e6f4ff;
+    }
+    </style>
 
-    user_input = st.text_area("Emails", height=200)
+    <div class="nav-container">
+        <div class="nav-box">
+            <strong>📧 Email Validator</strong><br>
+            Paste emails to check syntax, MX records, SMTP status, etc.
+        </div>
+        <div class="nav-box">
+            <strong>🧪 Email Permutator</strong><br>
+            Generate combinations from names + domains & validate deliverability.
+        </div>
+    </div>
+""", unsafe_allow_html=True)
 
-    if st.button("Validate"):
-        emails = [e.strip() for e in user_input.replace(',', '\n').split('\n') if e.strip()]
-        if not emails:
-            st.warning("Please enter at least one email address.")
-        else:
-            with st.spinner("Validating emails..."):
-                with ThreadPoolExecutor(max_workers=10) as executor:
-                    results = list(executor.map(validate_email, emails))
-                df = pd.DataFrame(results)
-                st.success("Validation complete!")
-                st.dataframe(df)
-                csv = df.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download CSV", data=csv, file_name="results.csv", mime="text/csv")
+# --- Sidebar Navigation ---
+st.sidebar.title("🧰 Email Toolkit")
+tool = st.sidebar.radio(
+    "Select a Tool",
+    ["📧 Email Validator", "🧪 Email Permutator"]
+)
 
-# Route based on selection
-if tool == "Email Validator":
+# --- Main Tool Execution ---
+if tool == "📧 Email Validator":
     show_email_validator()
-elif tool == "Email Permutator":
+elif tool == "🧪 Email Permutator":
     show_email_permutator()
